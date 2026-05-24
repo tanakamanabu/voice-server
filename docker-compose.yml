@@ -1,0 +1,28 @@
+services:
+  voice:
+    container_name: voice-server
+    build: ./app
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/root/.cache
+    environment:
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - voicevox
+    restart: unless-stopped
+
+  homeassistant:
+    container_name: homeassistant
+    image: ghcr.io/home-assistant/home-assistant:stable
+    volumes:
+      - ./hass_config:/config
+    network_mode: host
+    restart: unless-stopped
+
+  voicevox:
+    container_name: voicebox
+    image: voicevox/voicevox_engine:cpu-latest
+    ports:
+      - "50021:50021"
+    restart: unless-stopped
