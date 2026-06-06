@@ -96,52 +96,86 @@
   </div>
 </div>
 
-{# ── 応答テキスト ── #}
+{# ── 応答テキスト（キャラクター × 応答 マトリクス） ── #}
 <div class="card shadow-sm mb-4">
   <div class="card-header fw-bold">応答テキスト</div>
   <div class="card-body">
+
     {% if responses %}
-    <ul class="list-group list-group-flush mb-3">
-      {% for r in responses %}
-      <li class="list-group-item px-0">
-        <div class="d-flex justify-content-between align-items-start">
-          <div>
-            <div>{{ r['text'] }}</div>
-            <small class="text-muted">
-              {% if r['wav_path'] %}
-                ✅ 生成済（{{ r['generated_at'][:16] | replace('T',' ') }}）
+    <div class="table-responsive mb-3">
+      <table class="table table-bordered table-sm wav-matrix">
+        <thead class="table-light">
+          <tr>
+            <th>応答テキスト</th>
+            {% for char in characters %}
+            <th class="text-center">{{ char['name'] }}{% if char['is_active'] %} <span class="badge bg-success">▶</span>{% endif %}</th>
+            {% endfor %}
+            <th class="text-center">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in responses %}
+          <tr>
+            <td>{{ r['text'] }}</td>
+
+            {# キャラクター分 WAV ステータス列 #}
+            {% for char in characters %}
+            {% set wav = response_wavs.get(r['id'], {}).get(char['id']) %}
+            <td class="text-center">
+              {% if wav %}
+                <span class="text-success" title="{{ wav['generated_at'][:16] | replace('T',' ') }}">✅</span>
+                <form method="post"
+                      action="{{ url_for('admin.response_regenerate', response_id=r['id']) }}"
+                      class="d-inline">
+                  <input type="hidden" name="command_id"   value="{{ command['id'] }}">
+                  <input type="hidden" name="character_id" value="{{ char['id'] }}">
+                  <button class="btn btn-link btn-sm p-0 text-secondary" title="再生成">🔄</button>
+                </form>
               {% else %}
-                <span class="text-warning">⚠ 未生成</span>
+                <span class="text-warning">⚠</span>
+                <form method="post"
+                      action="{{ url_for('admin.response_regenerate', response_id=r['id']) }}"
+                      class="d-inline">
+                  <input type="hidden" name="command_id"   value="{{ command['id'] }}">
+                  <input type="hidden" name="character_id" value="{{ char['id'] }}">
+                  <button class="btn btn-link btn-sm p-0 text-primary" title="生成">生成</button>
+                </form>
               {% endif %}
-            </small>
-          </div>
-          <div class="d-flex gap-1 ms-2">
-            <form method="post"
-                  action="{{ url_for('admin.response_regenerate', response_id=r['id']) }}"
-                  class="d-flex gap-1 align-items-center">
-              <input type="hidden" name="command_id" value="{{ command['id'] }}">
-              <select name="speaker_id" class="form-select form-select-sm" style="width:auto">
-                {% for s in speakers %}
-                  <option value="{{ s['id'] }}">{{ s['name'] }}</option>
-                {% endfor %}
-              </select>
-              <button class="btn btn-sm btn-outline-secondary text-nowrap">再生成</button>
-            </form>
-            <form method="post"
-                  action="{{ url_for('admin.response_delete', response_id=r['id']) }}"
-                  onsubmit="return confirm('削除しますか？')">
-              <input type="hidden" name="command_id" value="{{ command['id'] }}">
-              <button class="btn btn-sm btn-outline-danger">削除</button>
-            </form>
-          </div>
-        </div>
-      </li>
-      {% endfor %}
-    </ul>
+            </td>
+            {% endfor %}
+
+            {# 操作列 #}
+            <td class="text-center text-nowrap">
+              <form method="post"
+                    action="{{ url_for('admin.response_regenerate_all', response_id=r['id']) }}"
+                    class="d-inline">
+                <input type="hidden" name="command_id" value="{{ command['id'] }}">
+                <button class="btn btn-sm btn-outline-secondary" title="全キャラクター分再生成">全再生成</button>
+              </form>
+              <form method="post"
+                    action="{{ url_for('admin.response_delete', response_id=r['id']) }}"
+                    class="d-inline"
+                    onsubmit="return confirm('削除しますか？')">
+                <input type="hidden" name="command_id" value="{{ command['id'] }}">
+                <button class="btn btn-sm btn-outline-danger">削除</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
     {% else %}
     <p class="text-muted mb-3">応答テキストが登録されていません。</p>
     {% endif %}
 
+    {% if not characters %}
+    <div class="alert alert-warning">
+      キャラクターが登録されていません。先に
+      <a href="{{ url_for('admin.characters_index') }}">キャラクター管理</a>
+      でキャラクターを作成してください。
+    </div>
+    {% else %}
     <form method="post" action="{{ url_for('admin.response_add', command_id=command['id']) }}">
       <div class="row g-2 align-items-end">
         <div class="col">
@@ -150,18 +184,17 @@
                  placeholder="例: はーい！ライトつけます！">
         </div>
         <div class="col-auto">
-          <label class="form-label mb-1">スピーカー</label>
-          <select name="speaker_id" class="form-select">
-            {% for s in speakers %}
-              <option value="{{ s['id'] }}">{{ s['name'] }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="col-auto">
-          <button class="btn btn-outline-primary">+ 追加 &amp; WAV 生成</button>
+          <button class="btn btn-outline-primary">
+            + 追加 &amp; 全キャラクター WAV 生成
+          </button>
         </div>
       </div>
+      <div class="form-text mt-1">
+        登録済みの全キャラクター（{{ characters | length }} 件）分の WAV を自動生成します。
+      </div>
     </form>
+    {% endif %}
+
   </div>
 </div>
 

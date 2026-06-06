@@ -1,0 +1,141 @@
+{% extends "admin/base.html" %}
+{% block content %}
+
+<h2 class="mb-1">キャラクター管理</h2>
+<p class="text-muted mb-4">
+  キャラクターごとに VoiceVox スピーカーを割り当てます。
+  アクティブキャラクターの WAV がリクエスト時に使用されます。
+</p>
+
+{# ── 新規追加フォーム ── #}
+<div class="card shadow-sm mb-4">
+  <div class="card-header fw-bold">新規キャラクター追加</div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('admin.character_new') }}">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label mb-1">キャラクター名 <span class="text-danger">*</span></label>
+          <input type="text" name="name" class="form-control" required placeholder="例: ずんだもん">
+        </div>
+        <div class="col-md-5">
+          <label class="form-label mb-1">VoiceVox スピーカー <span class="text-danger">*</span></label>
+          <select name="speaker_id" class="form-select" required>
+            {% if speakers %}
+              {% for s in speakers %}
+                <option value="{{ s['id'] }}">{{ s['name'] }} (id={{ s['id'] }})</option>
+              {% endfor %}
+            {% else %}
+              <option disabled>VoiceVox に接続できません</option>
+            {% endif %}
+          </select>
+        </div>
+        <div class="col-auto">
+          <button class="btn btn-outline-primary">+ 追加</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ── 一覧 ── #}
+<div class="card shadow-sm">
+  <div class="card-header fw-bold">登録済みキャラクター（{{ characters | length }} 件）</div>
+  {% if characters %}
+  <ul class="list-group list-group-flush">
+    {% for char in characters %}
+    <li class="list-group-item">
+      <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+
+        {# 左側: 名前・バッジ・スピーカーID #}
+        <div>
+          <span class="fw-semibold">{{ char['name'] }}</span>
+          {% if char['is_active'] %}
+            <span class="badge bg-success ms-1">▶ アクティブ</span>
+          {% endif %}
+          <br>
+          <small class="text-muted">
+            VoiceVox speaker_id = {{ char['voicevox_speaker_id'] }}
+            &nbsp;|&nbsp; 作成: {{ char['created_at'][:10] }}
+          </small>
+        </div>
+
+        {# 右側: 操作ボタン #}
+        <div class="d-flex flex-wrap gap-1 align-items-center">
+
+          {# アクティブ設定 #}
+          {% if not char['is_active'] %}
+          <form method="post"
+                action="{{ url_for('admin.character_activate', character_id=char['id']) }}">
+            <button class="btn btn-sm btn-success text-nowrap">▶ アクティブ設定</button>
+          </form>
+          {% endif %}
+
+          {# 編集（インラインフォーム） #}
+          <button class="btn btn-sm btn-outline-secondary text-nowrap"
+                  type="button"
+                  data-bs-toggle="collapse"
+                  data-bs-target="#editForm{{ char['id'] }}">
+            ✏ 編集
+          </button>
+
+          {# 削除 #}
+          {% if not char['is_active'] %}
+          <form method="post"
+                action="{{ url_for('admin.character_delete', character_id=char['id']) }}"
+                onsubmit="return confirm('「{{ char['name'] }}」を削除しますか？\n関連する WAV レコードも削除されます。')">
+            <button class="btn btn-sm btn-outline-danger">削除</button>
+          </form>
+          {% endif %}
+
+        </div>
+      </div>
+
+      {# 編集コラプスパネル #}
+      <div class="collapse mt-2" id="editForm{{ char['id'] }}">
+        <form method="post"
+              action="{{ url_for('admin.character_edit', character_id=char['id']) }}"
+              class="border rounded p-3 bg-light">
+          <div class="row g-2 align-items-end">
+            <div class="col-md-4">
+              <label class="form-label mb-1">キャラクター名</label>
+              <input type="text" name="name" class="form-control" required
+                     value="{{ char['name'] }}">
+            </div>
+            <div class="col-md-5">
+              <label class="form-label mb-1">VoiceVox スピーカー</label>
+              <select name="speaker_id" class="form-select">
+                {% if speakers %}
+                  {% for s in speakers %}
+                    <option value="{{ s['id'] }}"
+                      {% if s['id'] == char['voicevox_speaker_id'] %}selected{% endif %}>
+                      {{ s['name'] }} (id={{ s['id'] }})
+                    </option>
+                  {% endfor %}
+                {% else %}
+                  <option value="{{ char['voicevox_speaker_id'] }}">
+                    speaker_id={{ char['voicevox_speaker_id'] }}（VoiceVox に接続できません）
+                  </option>
+                {% endif %}
+              </select>
+            </div>
+            <div class="col-auto">
+              <button class="btn btn-primary">保存</button>
+            </div>
+          </div>
+          <div class="form-text mt-1 text-warning">
+            ⚠ スピーカーを変更した場合、このキャラクターの既存 WAV は古い声のままです。
+            コマンド・フォールバック画面で「全再生成」してください。
+          </div>
+        </form>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="card-body text-muted text-center">
+    キャラクターが登録されていません。
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}

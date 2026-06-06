@@ -34,6 +34,13 @@ def voice():
     t1 = time.time()
     logger.info("保存まで: %.2fs", t1 - start)
 
+    # アクティブキャラクターを取得
+    active_char = database.get_active_character()
+    if active_char is None:
+        return jsonify({"error": "アクティブキャラクターが設定されていません。管理画面で設定してください。"}), 500
+    character_id = active_char["id"]
+    logger.info("アクティブキャラクター: %s (id=%d)", active_char["name"], character_id)
+
     try:
         commands = vosk_detector.detect_commands(tmp_path)
         t2 = time.time()
@@ -44,7 +51,7 @@ def voice():
         if commands:
             # 全コマンドのHA呼び出しを実行し、最初のコマンドの応答WAVを使う
             for i, cmd_name in enumerate(commands):
-                result = execute(cmd_name)
+                result = execute(cmd_name, character_id)
                 if i == 0:
                     wav_path = result
         else:
@@ -56,11 +63,12 @@ def voice():
             logger.info("Whisper 認識: %s", text or "(なし)")
 
             # フォールバック応答WAVをランダム選択
-            fallback = database.get_random_fallback()
-            if fallback:
-                wav_path = fallback["wav_path"]
-            else:
-                logger.warning("有効なフォールバック応答WAVがありません。管理画面で生成してください。")
+            wav_path = database.get_random_fallback(character_id)
+            if wav_path is None:
+                logger.warning(
+                    "有効なフォールバック応答WAVがありません（character_id=%d）。管理画面で生成してください。",
+                    character_id,
+                )
 
     finally:
         os.unlink(tmp_path)

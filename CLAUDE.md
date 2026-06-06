@@ -45,13 +45,22 @@ docker compose restart voice
 | `app/vosk_detector.py` | VOSK モデルのシングルトン管理。grammarはDBから動的ロード。`reload_grammar()` でホットリロード対応 |
 | `app/command_executor.py` | コマンド名でDB参照 → HA REST API 呼び出し → 応答WAVパスを返す |
 | `app/database.py` | SQLite CRUD。`init_db()` でテーブル作成と初期データ投入 |
-| `app/voicevox.py` | VoiceVox API による WAV 事前合成（Step 3 で追加予定） |
-| `app/admin.py` | 管理画面 Blueprint（Step 4 で追加予定） |
+| `app/voicevox.py` | VoiceVox API による WAV 事前合成。キャラクター × 応答の単体・一括生成 |
+| `app/admin.py` | 管理画面 Blueprint。コマンド/フォールバック/キャラクター管理 |
 
 ### コマンドの追加・変更
 
 ソースコードの編集は不要。管理画面（`/admin`）から操作する。  
 grammar を変更した後は管理画面の「VOSKに反映」ボタンを押すこと（再起動不要）。
+
+### キャラクター管理
+
+`/admin/characters` でキャラクターを追加・切り替えできる。
+
+- **characters テーブル**: キャラクター名と VoiceVox speaker_id を管理。`is_active=1` のキャラクターがリクエスト時に使用される
+- **WAV はキャラクターごとに個別に保存**: `response_{id}_char_{character_id}.wav` / `fallback_{id}_char_{character_id}.wav`
+- 応答テキストを追加すると全キャラクター分の WAV を一括生成する
+- スピーカーを変更した場合は管理画面の「全再生成」で既存 WAV を更新すること
 
 ### Home Assistant 連携の注意点
 

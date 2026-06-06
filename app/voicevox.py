@@ -16,14 +16,12 @@ import database
 
 logger = logging.getLogger(__name__)
 
-VOICEVOX_URL   = os.getenv("VOICEVOX_URL",       "http://voicevox:50021")
-SPEAKER_ID     = int(os.getenv("VOICEVOX_SPEAKER_ID", "1"))
-RESPONSES_DIR  = Path(os.getenv("RESPONSES_DIR", "/app/data/responses"))
+VOICEVOX_URL  = os.getenv("VOICEVOX_URL",  "http://voicevox:50021")
+RESPONSES_DIR = Path(os.getenv("RESPONSES_DIR", "/app/data/responses"))
 
 
 def _synthesize(text: str, speaker_id: int) -> bytes:
     """テキストを VoiceVox で合成し WAV バイト列を返す。"""
-    # Step 1: audio_query 取得
     resp = requests.post(
         f"{VOICEVOX_URL}/audio_query",
         params={"text": text, "speaker": speaker_id},
@@ -32,7 +30,6 @@ def _synthesize(text: str, speaker_id: int) -> bytes:
     resp.raise_for_status()
     audio_query = resp.json()
 
-    # Step 2: WAV 合成
     resp = requests.post(
         f"{VOICEVOX_URL}/synthesis",
         params={"speaker": speaker_id},
@@ -52,42 +49,96 @@ def _save_wav(wav_bytes: bytes, filename: str) -> str:
     return str(path)
 
 
-def generate_response_wav(response_id: int, speaker_id: int | None = None) -> str:
+def _get_speaker_id(character_id: int) -> int:
+    """キャラクター ID から VoiceVox スピーカー ID を取得する。"""
+    char = database.get_character(character_id)
+    if char is None:
+        raise ValueError(f"キャラクターが見つかりません: id={character_id}")
+    return char["voicevox_speaker_id"]
+
+
+def generate_response_wav(response_id: int, character_id: int) -> str:
     """
-    command_responses の WAV を生成・保存し、wav_path を返す。
-    DB の wav_path / generated_at も更新する。
+    command_responses の WAV を指定キャラクターで生成・保存する。
+    DB の command_response_wavs も更新する。
     """
     row = database.get_response(response_id)
     if row is None:
         raise ValueError(f"command_responses に id={response_id} が見つかりません")
 
-    sid = speaker_id if speaker_id is not None else SPEAKER_ID
-    logger.info("WAV 生成: response_id=%d speaker=%d text=%s", response_id, sid, row["text"])
+    speaker_id = _get_speaker_id(character_id)
+    logger.info(
+        "WAV 生成: response_id=%d character_id=%d speaker=%d text=%s",
+        response_id, character_id, speaker_id, row["text"],
+    )
 
-    wav_bytes = _synthesize(row["text"], sid)
-    wav_path  = _save_wav(wav_bytes, f"response_{response_id}.wav")
+    wav_bytes = _synthesize(row["text"], speaker_id)
+    wav_path  = _save_wav(wav_bytes, f"response_{response_id}_char_{character_id}.wav")
 
-    database.update_response_wav(response_id, wav_path)
+    database.upsert_response_wav(response_id, character_id, wav_path)
     return wav_path
 
 
-def generate_fallback_wav(fallback_id: int, speaker_id: int | None = None) -> str:
+def generate_fallback_wav(fallback_id: int, character_id: int) -> str:
     """
-    fallback_responses の WAV を生成・保存し、wav_path を返す。
-    DB の wav_path / generated_at も更新する。
+    fallback_responses の WAV を指定キャラクターで生成・保存する。
+    DB の fallback_response_wavs も更新する。
     """
     row = database.get_fallback(fallback_id)
     if row is None:
         raise ValueError(f"fallback_responses に id={fallback_id} が見つかりません")
 
-    sid = speaker_id if speaker_id is not None else SPEAKER_ID
-    logger.info("WAV 生成: fallback_id=%d speaker=%d text=%s", fallback_id, sid, row["text"])
+    speaker_id = _get_speaker_id(character_id)
+    logger.info(
+        "WAV 生成: fallback_id=%d character_id=%d speaker=%d text=%s",
+        fallback_id, character_id, speaker_id, row["text"],
+    )
 
-    wav_bytes = _synthesize(row["text"], sid)
-    wav_path  = _save_wav(wav_bytes, f"fallback_{fallback_id}.wav")
+    wav_bytes = _synthesize(row["text"], speaker_id)
+    wav_path  = _save_wav(wav_bytes, f"fallback_{fallback_id}_char_{character_id}.wav")
 
-    database.update_fallback_wav(fallback_id, wav_path)
+    database.upsert_fallback_wav(fallback_id, character_id, wav_path)
     return wav_path
+
+
+def generate_all_response_wavs(response_id: int) -> list[tuple[int, str | None]]:
+    """
+    全キャラクター分の WAV を一括生成する。
+    戻り値: [(character_id, wav_path_or_None), ...]
+    """
+    characters = database.get_all_characters()
+    results = []
+    for char in characters:
+        try:
+            path = generate_response_wav(response_id, char["id"])
+            results.append((char["id"], path))
+        except Exception as exc:
+            logger.error(
+                "WAV 生成失敗: response_id=%d character_id=%d — %s",
+                response_id, char["id"], exc,
+            )
+            results.append((char["id"], None))
+    return results
+
+
+def generate_all_fallback_wavs(fallback_id: int) -> list[tuple[int, str | None]]:
+    """
+    全キャラクター分のフォールバック WAV を一括生成する。
+    戻り値: [(character_id, wav_path_or_None), ...]
+    """
+    characters = database.get_all_characters()
+    results = []
+    for char in characters:
+        try:
+            path = generate_fallback_wav(fallback_id, char["id"])
+            results.append((char["id"], path))
+        except Exception as exc:
+            logger.error(
+                "WAV 生成失敗: fallback_id=%d character_id=%d — %s",
+                fallback_id, char["id"], exc,
+            )
+            results.append((char["id"], None))
+    return results
 
 
 def get_speakers() -> list[dict]:
