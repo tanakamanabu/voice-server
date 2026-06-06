@@ -3,7 +3,7 @@
 
 <h2 class="mb-1">キャラクター管理</h2>
 <p class="text-muted mb-4">
-  キャラクターごとに VoiceVox スピーカーを割り当てます。
+  キャラクターごとに WAV の生成方法を設定します。
   アクティブキャラクターの WAV がリクエスト時に使用されます。
 </p>
 
@@ -11,21 +11,29 @@
 <div class="card shadow-sm mb-4">
   <div class="card-header fw-bold">新規キャラクター追加</div>
   <div class="card-body">
-    <form method="post" action="{{ url_for('admin.character_new') }}">
+    <form method="post" action="{{ url_for('admin.character_new') }}" id="newCharForm">
       <div class="row g-2 align-items-end">
-        <div class="col-md-4">
+        <div class="col-md-3">
           <label class="form-label mb-1">キャラクター名 <span class="text-danger">*</span></label>
           <input type="text" name="name" class="form-control" required placeholder="例: ずんだもん">
         </div>
-        <div class="col-md-5">
+        <div class="col-md-3">
+          <label class="form-label mb-1">合成タイプ <span class="text-danger">*</span></label>
+          <select name="synthesis_type" class="form-select" id="newSynthesisType"
+                  onchange="toggleNewSpeaker(this)">
+            <option value="voicevox">VoiceVox（自動合成）</option>
+            <option value="upload">手動アップロード / VOCALOID など</option>
+          </select>
+        </div>
+        <div class="col-md-4" id="newSpeakerGroup">
           <label class="form-label mb-1">VoiceVox スピーカー <span class="text-danger">*</span></label>
-          <select name="speaker_id" class="form-select" required>
+          <select name="speaker_id" class="form-select">
             {% if speakers %}
               {% for s in speakers %}
                 <option value="{{ s['id'] }}">{{ s['name'] }} (id={{ s['id'] }})</option>
               {% endfor %}
             {% else %}
-              <option disabled>VoiceVox に接続できません</option>
+              <option value="0" disabled>VoiceVox に接続できません</option>
             {% endif %}
           </select>
         </div>
@@ -46,23 +54,28 @@
     <li class="list-group-item">
       <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
 
-        {# 左側: 名前・バッジ・スピーカーID #}
+        {# 左側: 名前・バッジ #}
         <div>
           <span class="fw-semibold">{{ char['name'] }}</span>
           {% if char['is_active'] %}
             <span class="badge bg-success ms-1">▶ アクティブ</span>
           {% endif %}
+          {% if char['synthesis_type'] == 'upload' %}
+            <span class="badge bg-secondary ms-1">📁 手動アップロード</span>
+          {% else %}
+            <span class="badge bg-info text-dark ms-1">🔊 VoiceVox</span>
+          {% endif %}
           <br>
           <small class="text-muted">
-            VoiceVox speaker_id = {{ char['voicevox_speaker_id'] }}
-            &nbsp;|&nbsp; 作成: {{ char['created_at'][:10] }}
+            {% if char['synthesis_type'] == 'voicevox' %}
+              speaker_id = {{ char['voicevox_speaker_id'] }} &nbsp;|&nbsp;
+            {% endif %}
+            作成: {{ char['created_at'][:10] }}
           </small>
         </div>
 
         {# 右側: 操作ボタン #}
         <div class="d-flex flex-wrap gap-1 align-items-center">
-
-          {# アクティブ設定 #}
           {% if not char['is_active'] %}
           <form method="post"
                 action="{{ url_for('admin.character_activate', character_id=char['id']) }}">
@@ -70,7 +83,6 @@
           </form>
           {% endif %}
 
-          {# 編集（インラインフォーム） #}
           <button class="btn btn-sm btn-outline-secondary text-nowrap"
                   type="button"
                   data-bs-toggle="collapse"
@@ -78,7 +90,6 @@
             ✏ 編集
           </button>
 
-          {# 削除 #}
           {% if not char['is_active'] %}
           <form method="post"
                 action="{{ url_for('admin.character_delete', character_id=char['id']) }}"
@@ -86,7 +97,6 @@
             <button class="btn btn-sm btn-outline-danger">削除</button>
           </form>
           {% endif %}
-
         </div>
       </div>
 
@@ -94,14 +104,30 @@
       <div class="collapse mt-2" id="editForm{{ char['id'] }}">
         <form method="post"
               action="{{ url_for('admin.character_edit', character_id=char['id']) }}"
-              class="border rounded p-3 bg-light">
+              class="border rounded p-3 bg-light"
+              id="editForm{{ char['id'] }}Inner">
           <div class="row g-2 align-items-end">
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label mb-1">キャラクター名</label>
               <input type="text" name="name" class="form-control" required
                      value="{{ char['name'] }}">
             </div>
-            <div class="col-md-5">
+            <div class="col-md-3">
+              <label class="form-label mb-1">合成タイプ</label>
+              <select name="synthesis_type" class="form-select"
+                      id="editSynthType{{ char['id'] }}"
+                      onchange="toggleEditSpeaker(this, {{ char['id'] }})">
+                <option value="voicevox" {% if char['synthesis_type'] == 'voicevox' %}selected{% endif %}>
+                  VoiceVox（自動合成）
+                </option>
+                <option value="upload" {% if char['synthesis_type'] == 'upload' %}selected{% endif %}>
+                  手動アップロード / VOCALOID など
+                </option>
+              </select>
+            </div>
+            <div class="col-md-4"
+                 id="editSpeakerGroup{{ char['id'] }}"
+                 {% if char['synthesis_type'] == 'upload' %}style="display:none"{% endif %}>
               <label class="form-label mb-1">VoiceVox スピーカー</label>
               <select name="speaker_id" class="form-select">
                 {% if speakers %}
@@ -113,7 +139,7 @@
                   {% endfor %}
                 {% else %}
                   <option value="{{ char['voicevox_speaker_id'] }}">
-                    speaker_id={{ char['voicevox_speaker_id'] }}（VoiceVox に接続できません）
+                    speaker_id={{ char['voicevox_speaker_id'] }}（VoiceVox に未接続）
                   </option>
                 {% endif %}
               </select>
@@ -122,10 +148,12 @@
               <button class="btn btn-primary">保存</button>
             </div>
           </div>
+          {% if char['synthesis_type'] == 'voicevox' %}
           <div class="form-text mt-1 text-warning">
-            ⚠ スピーカーを変更した場合、このキャラクターの既存 WAV は古い声のままです。
-            コマンド・フォールバック画面で「全再生成」してください。
+            ⚠ スピーカーを変更した場合、既存 WAV は古い声のままです。
+            コマンド・フォールバック画面の「全再生成」で更新してください。
           </div>
+          {% endif %}
         </form>
       </div>
     </li>
@@ -137,5 +165,16 @@
   </div>
   {% endif %}
 </div>
+
+<script>
+function toggleNewSpeaker(sel) {
+  document.getElementById('newSpeakerGroup').style.display =
+    sel.value === 'voicevox' ? '' : 'none';
+}
+function toggleEditSpeaker(sel, charId) {
+  document.getElementById('editSpeakerGroup' + charId).style.display =
+    sel.value === 'voicevox' ? '' : 'none';
+}
+</script>
 
 {% endblock %}

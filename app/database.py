@@ -49,11 +49,20 @@ def init_db():
             CREATE TABLE IF NOT EXISTS characters (
                 id                  INTEGER PRIMARY KEY AUTOINCREMENT,
                 name                TEXT NOT NULL UNIQUE,
-                voicevox_speaker_id INTEGER NOT NULL,
+                voicevox_speaker_id INTEGER NOT NULL DEFAULT 0,
+                synthesis_type      TEXT NOT NULL DEFAULT 'voicevox',
                 is_active           INTEGER NOT NULL DEFAULT 0,
                 created_at          TEXT NOT NULL
             )
         """)
+        # マイグレーション: 既存テーブルに synthesis_type がなければ追加
+        existing_cols = [
+            row[1] for row in conn.execute("PRAGMA table_info(characters)").fetchall()
+        ]
+        if "synthesis_type" not in existing_cols:
+            conn.execute(
+                "ALTER TABLE characters ADD COLUMN synthesis_type TEXT NOT NULL DEFAULT 'voicevox'"
+            )
         conn.execute("""
             CREATE TABLE IF NOT EXISTS commands (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -154,8 +163,10 @@ def _seed_initial_data():
     with get_db() as conn:
         if not has_chars:
             conn.execute(
-                "INSERT INTO characters (name, voicevox_speaker_id, is_active, created_at) VALUES (?,?,1,?)",
-                ("デフォルト", 1, now),
+                """INSERT INTO characters
+                       (name, voicevox_speaker_id, synthesis_type, is_active, created_at)
+                   VALUES (?,?,?,1,?)""",
+                ("デフォルト", 1, "voicevox", now),
             )
 
         if not has_commands:
@@ -209,22 +220,28 @@ def get_active_character():
         ).fetchone()
 
 
-def create_character(name: str, speaker_id: int) -> int:
+def create_character(name: str, synthesis_type: str, speaker_id: int = 0) -> int:
+    """
+    synthesis_type: 'voicevox' | 'upload'
+    speaker_id: voicevox タイプのみ使用。upload タイプは 0 でよい。
+    """
     with get_db() as conn:
         # 初めてのキャラクターはアクティブにする
         is_first = conn.execute("SELECT COUNT(*) FROM characters").fetchone()[0] == 0
         cur = conn.execute(
-            "INSERT INTO characters (name, voicevox_speaker_id, is_active, created_at) VALUES (?,?,?,?)",
-            (name, speaker_id, 1 if is_first else 0, _now()),
+            """INSERT INTO characters
+                   (name, voicevox_speaker_id, synthesis_type, is_active, created_at)
+               VALUES (?,?,?,?,?)""",
+            (name, speaker_id, synthesis_type, 1 if is_first else 0, _now()),
         )
         return cur.lastrowid
 
 
-def update_character(character_id: int, name: str, speaker_id: int):
+def update_character(character_id: int, name: str, synthesis_type: str, speaker_id: int = 0):
     with get_db() as conn:
         conn.execute(
-            "UPDATE characters SET name=?, voicevox_speaker_id=? WHERE id=?",
-            (name, speaker_id, character_id),
+            "UPDATE characters SET name=?, voicevox_speaker_id=?, synthesis_type=? WHERE id=?",
+            (name, speaker_id, synthesis_type, character_id),
         )
 
 

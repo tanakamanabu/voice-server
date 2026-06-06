@@ -103,10 +103,11 @@ def generate_fallback_wav(fallback_id: int, character_id: int) -> str:
 
 def generate_all_response_wavs(response_id: int) -> list[tuple[int, str | None]]:
     """
-    全キャラクター分の WAV を一括生成する。
+    synthesis_type='voicevox' のキャラクター分 WAV を一括生成する。
+    upload タイプはスキップ（手動アップロードが必要）。
     戻り値: [(character_id, wav_path_or_None), ...]
     """
-    characters = database.get_all_characters()
+    characters = [c for c in database.get_all_characters() if c["synthesis_type"] == "voicevox"]
     results = []
     for char in characters:
         try:
@@ -123,10 +124,11 @@ def generate_all_response_wavs(response_id: int) -> list[tuple[int, str | None]]
 
 def generate_all_fallback_wavs(fallback_id: int) -> list[tuple[int, str | None]]:
     """
-    全キャラクター分のフォールバック WAV を一括生成する。
+    synthesis_type='voicevox' のキャラクター分フォールバック WAV を一括生成する。
+    upload タイプはスキップ。
     戻り値: [(character_id, wav_path_or_None), ...]
     """
-    characters = database.get_all_characters()
+    characters = [c for c in database.get_all_characters() if c["synthesis_type"] == "voicevox"]
     results = []
     for char in characters:
         try:

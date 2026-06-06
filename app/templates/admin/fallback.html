@@ -18,18 +18,17 @@
     <form method="post" action="{{ url_for('admin.fallback_index') }}">
       <div class="row g-2 align-items-end">
         <div class="col">
-          <label class="form-label mb-1">応答テキスト</label>
+          <label class="form-label mb-1">応答テキスト（ラベル）</label>
           <input type="text" name="text" class="form-control" required
                  placeholder="例: すみません、もう一度おっしゃっていただけますか？">
         </div>
         <div class="col-auto">
-          <button class="btn btn-outline-primary">
-            + 追加 &amp; 全キャラクター WAV 生成
-          </button>
+          <button class="btn btn-outline-primary">+ 追加</button>
         </div>
       </div>
       <div class="form-text mt-1">
-        登録済みの全キャラクター（{{ characters | length }} 件）分の WAV を自動生成します。
+        VoiceVox キャラクター（{{ characters | selectattr('synthesis_type','eq','voicevox') | list | length }} 件）は自動合成。
+        アップロード型（{{ characters | selectattr('synthesis_type','eq','upload') | list | length }} 件）は追加後に手動で 📁 から登録してください。
       </div>
     </form>
     {% endif %}
@@ -50,6 +49,9 @@
             <th class="text-center">
               {{ char['name'] }}
               {% if char['is_active'] %}<span class="badge bg-success">▶</span>{% endif %}
+              {% if char['synthesis_type'] == 'upload' %}
+                <span class="badge bg-secondary">📁</span>
+              {% endif %}
             </th>
             {% endfor %}
             <th class="text-center">操作</th>
@@ -65,26 +67,53 @@
               {% endif %}
             </td>
 
-            {# キャラクター分 WAV ステータス列 #}
             {% for char in characters %}
             {% set wav = fallback_wavs.get(f['id'], {}).get(char['id']) %}
             <td class="text-center">
-              {% if wav %}
-                <span class="text-success" title="{{ wav['generated_at'][:16] | replace('T',' ') }}">✅</span>
-                <form method="post"
-                      action="{{ url_for('admin.fallback_regenerate', fallback_id=f['id']) }}"
-                      class="d-inline">
-                  <input type="hidden" name="character_id" value="{{ char['id'] }}">
-                  <button class="btn btn-link btn-sm p-0 text-secondary" title="再生成">🔄</button>
-                </form>
+              {% if char['synthesis_type'] == 'voicevox' %}
+                {# VoiceVox タイプ #}
+                {% if wav %}
+                  <span class="text-success" title="{{ wav['generated_at'][:16] | replace('T',' ') }}">✅</span>
+                  <form method="post"
+                        action="{{ url_for('admin.fallback_regenerate', fallback_id=f['id']) }}"
+                        class="d-inline">
+                    <input type="hidden" name="character_id" value="{{ char['id'] }}">
+                    <button class="btn btn-link btn-sm p-0 text-secondary" title="再合成">🔄</button>
+                  </form>
+                {% else %}
+                  <span class="text-warning">⚠</span>
+                  <form method="post"
+                        action="{{ url_for('admin.fallback_regenerate', fallback_id=f['id']) }}"
+                        class="d-inline">
+                    <input type="hidden" name="character_id" value="{{ char['id'] }}">
+                    <button class="btn btn-link btn-sm p-0 text-primary">合成</button>
+                  </form>
+                {% endif %}
               {% else %}
-                <span class="text-warning">⚠</span>
-                <form method="post"
-                      action="{{ url_for('admin.fallback_regenerate', fallback_id=f['id']) }}"
-                      class="d-inline">
-                  <input type="hidden" name="character_id" value="{{ char['id'] }}">
-                  <button class="btn btn-link btn-sm p-0 text-primary" title="生成">生成</button>
-                </form>
+                {# アップロードタイプ #}
+                {% if wav %}
+                  <span class="text-success" title="{{ wav['generated_at'][:16] | replace('T',' ') }}">✅</span>
+                {% else %}
+                  <span class="text-warning">⚠</span>
+                {% endif %}
+                <button class="btn btn-link btn-sm p-0 text-secondary"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#upF{{ f['id'] }}C{{ char['id'] }}"
+                        title="{% if wav %}差し替え{% else %}アップロード{% endif %}">
+                  📁
+                </button>
+                <div class="collapse mt-1" id="upF{{ f['id'] }}C{{ char['id'] }}">
+                  <form method="post"
+                        action="{{ url_for('admin.fallback_upload_wav', fallback_id=f['id']) }}"
+                        enctype="multipart/form-data">
+                    <input type="hidden" name="character_id" value="{{ char['id'] }}">
+                    <input type="file" name="wav_file" accept=".wav"
+                           class="form-control form-control-sm mb-1" required>
+                    <button class="btn btn-sm btn-primary w-100">
+                      {% if wav %}差し替え{% else %}アップロード{% endif %}
+                    </button>
+                  </form>
+                </div>
               {% endif %}
             </td>
             {% endfor %}
@@ -94,7 +123,8 @@
               <form method="post"
                     action="{{ url_for('admin.fallback_regenerate_all', fallback_id=f['id']) }}"
                     class="d-inline">
-                <button class="btn btn-sm btn-outline-secondary">全再生成</button>
+                <button class="btn btn-sm btn-outline-secondary"
+                        title="VoiceVox キャラクターを全再合成">全再合成</button>
               </form>
               <form method="post"
                     action="{{ url_for('admin.fallback_delete', fallback_id=f['id']) }}"
