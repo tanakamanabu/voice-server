@@ -1,0 +1,170 @@
+{% extends "admin/base.html" %}
+{% block content %}
+
+<div class="mb-3">
+  <a href="{{ url_for('admin.index') }}" class="text-decoration-none">← コマンド一覧</a>
+</div>
+
+<h2 class="mb-4">{% if command %}「{{ command['name'] }}」の編集{% else %}新規コマンド{% endif %}</h2>
+
+{# ── コマンド設定 ── #}
+<div class="card shadow-sm mb-4">
+  <div class="card-header fw-bold">コマンド設定</div>
+  <div class="card-body">
+    <form method="post"
+          action="{% if command %}{{ url_for('admin.command_edit', command_id=command['id']) }}{% else %}{{ url_for('admin.command_new') }}{% endif %}">
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label">コマンド名 <span class="text-danger">*</span></label>
+          <input type="text" name="name" class="form-control" required
+                 value="{{ command['name'] if command else '' }}"
+                 placeholder="例: ライトオン">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">HA ドメイン</label>
+          <input type="text" name="ha_domain" class="form-control"
+                 value="{{ command['ha_domain'] or '' if command else '' }}"
+                 placeholder="例: light / climate / switch">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">HA サービス</label>
+          <input type="text" name="ha_service" class="form-control"
+                 value="{{ command['ha_service'] or '' if command else '' }}"
+                 placeholder="例: turn_on / set_hvac_mode">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">エンティティ ID</label>
+          <input type="text" name="ha_entity_id" class="form-control"
+                 value="{{ command['ha_entity_id'] or '' if command else '' }}"
+                 placeholder="例: light.living_room">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">追加パラメータ（JSON）</label>
+          <input type="text" name="ha_extra" class="form-control"
+                 value="{{ command['ha_extra'] if command else '{}' }}"
+                 placeholder='例: {"hvac_mode": "cool"}'>
+        </div>
+        {% if command %}
+        <div class="col-12">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="enabled" id="enabled"
+                   {% if command['enabled'] %}checked{% endif %}>
+            <label class="form-check-label" for="enabled">有効</label>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      <div class="mt-3">
+        <button type="submit" class="btn btn-primary">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if command %}
+
+{# ── 認識ワード（grammar） ── #}
+<div class="card shadow-sm mb-4">
+  <div class="card-header fw-bold">認識ワード（grammar）</div>
+  <div class="card-body">
+    {% if grammars %}
+    <ul class="list-group list-group-flush mb-3">
+      {% for g in grammars %}
+      <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+        <code>{{ g['grammar'] }}</code>
+        <form method="post" action="{{ url_for('admin.grammar_delete', grammar_id=g['id']) }}"
+              onsubmit="return confirm('削除しますか？')">
+          <input type="hidden" name="command_id" value="{{ command['id'] }}">
+          <button class="btn btn-sm btn-outline-danger">削除</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-muted mb-3">grammar が登録されていません。</p>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('admin.grammar_add', command_id=command['id']) }}"
+          class="d-flex gap-2">
+      <input type="text" name="grammar" class="form-control" required
+             placeholder="例: ライト オン （スペース区切りのカタカナ）">
+      <button class="btn btn-outline-primary text-nowrap">+ 追加</button>
+    </form>
+    <div class="form-text mt-1">
+      追加後は画面上部の「🔄 VOSK に反映」を押して認識に適用してください。
+    </div>
+  </div>
+</div>
+
+{# ── 応答テキスト ── #}
+<div class="card shadow-sm mb-4">
+  <div class="card-header fw-bold">応答テキスト</div>
+  <div class="card-body">
+    {% if responses %}
+    <ul class="list-group list-group-flush mb-3">
+      {% for r in responses %}
+      <li class="list-group-item px-0">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div>{{ r['text'] }}</div>
+            <small class="text-muted">
+              {% if r['wav_path'] %}
+                ✅ 生成済（{{ r['generated_at'][:16] | replace('T',' ') }}）
+              {% else %}
+                <span class="text-warning">⚠ 未生成</span>
+              {% endif %}
+            </small>
+          </div>
+          <div class="d-flex gap-1 ms-2">
+            <form method="post"
+                  action="{{ url_for('admin.response_regenerate', response_id=r['id']) }}"
+                  class="d-flex gap-1 align-items-center">
+              <input type="hidden" name="command_id" value="{{ command['id'] }}">
+              <select name="speaker_id" class="form-select form-select-sm" style="width:auto">
+                {% for s in speakers %}
+                  <option value="{{ s['id'] }}">{{ s['name'] }}</option>
+                {% endfor %}
+              </select>
+              <button class="btn btn-sm btn-outline-secondary text-nowrap">再生成</button>
+            </form>
+            <form method="post"
+                  action="{{ url_for('admin.response_delete', response_id=r['id']) }}"
+                  onsubmit="return confirm('削除しますか？')">
+              <input type="hidden" name="command_id" value="{{ command['id'] }}">
+              <button class="btn btn-sm btn-outline-danger">削除</button>
+            </form>
+          </div>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-muted mb-3">応答テキストが登録されていません。</p>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('admin.response_add', command_id=command['id']) }}">
+      <div class="row g-2 align-items-end">
+        <div class="col">
+          <label class="form-label mb-1">応答テキスト</label>
+          <input type="text" name="text" class="form-control" required
+                 placeholder="例: はーい！ライトつけます！">
+        </div>
+        <div class="col-auto">
+          <label class="form-label mb-1">スピーカー</label>
+          <select name="speaker_id" class="form-select">
+            {% for s in speakers %}
+              <option value="{{ s['id'] }}">{{ s['name'] }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-auto">
+          <button class="btn btn-outline-primary">+ 追加 &amp; WAV 生成</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endif %}{# end if command #}
+
+{% endblock %}

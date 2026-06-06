@@ -1,0 +1,77 @@
+{% extends "admin/base.html" %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="mb-0">コマンド一覧</h2>
+  <a href="{{ url_for('admin.command_new') }}" class="btn btn-primary">+ 新規コマンド</a>
+</div>
+
+<div class="card shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>コマンド名</th>
+          <th>状態</th>
+          <th>grammar</th>
+          <th>応答 WAV</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for cmd in commands %}
+        <tr>
+          <td>
+            <a href="{{ url_for('admin.command_edit', command_id=cmd['id']) }}" class="fw-bold text-decoration-none">
+              {{ cmd['name'] }}
+            </a>
+          </td>
+          <td>
+            {% if cmd['enabled'] %}
+              <span class="badge bg-success">有効</span>
+            {% else %}
+              <span class="badge bg-secondary">無効</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if cmd['grammar_count'] == 0 %}
+              <span class="text-warning">⚠ 未設定</span>
+            {% else %}
+              {{ cmd['grammar_count'] }} 件
+            {% endif %}
+          </td>
+          <td>
+            {% if cmd['response_count'] == 0 %}
+              <span class="text-warning">⚠ 未設定</span>
+            {% else %}
+              {{ cmd['response_count'] }} 件
+              {% if cmd['ungenerated_count'] and cmd['ungenerated_count'] > 0 %}
+                <span class="badge bg-warning text-dark badge-ungenerated">{{ cmd['ungenerated_count'] }} 件未生成</span>
+              {% else %}
+                <span class="badge bg-success badge-ungenerated">✓ 全生成済</span>
+              {% endif %}
+            {% endif %}
+          </td>
+          <td class="text-end">
+            <a href="{{ url_for('admin.command_edit', command_id=cmd['id']) }}"
+               class="btn btn-sm btn-outline-secondary">編集</a>
+            <form method="post" action="{{ url_for('admin.command_delete', command_id=cmd['id']) }}"
+                  class="d-inline"
+                  onsubmit="return confirm('「{{ cmd['name'] }}」を削除しますか？\n関連する grammar・応答 WAV もすべて削除されます。')">
+              <button class="btn btn-sm btn-outline-danger">削除</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="5" class="text-center text-muted py-4">
+            コマンドがありません。「+ 新規コマンド」から追加してください。
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

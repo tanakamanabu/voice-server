@@ -1,0 +1,83 @@
+{% extends "admin/base.html" %}
+{% block content %}
+
+<h2 class="mb-4">フォールバック応答</h2>
+<p class="text-muted">コマンドが検出されなかった場合にランダムで再生されます。</p>
+
+{# ── 追加フォーム ── #}
+<div class="card shadow-sm mb-4">
+  <div class="card-header fw-bold">新規追加</div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('admin.fallback_index') }}">
+      <div class="row g-2 align-items-end">
+        <div class="col">
+          <label class="form-label mb-1">応答テキスト</label>
+          <input type="text" name="text" class="form-control" required
+                 placeholder="例: すみません、もう一度おっしゃっていただけますか？">
+        </div>
+        <div class="col-auto">
+          <label class="form-label mb-1">スピーカー</label>
+          <select name="speaker_id" class="form-select">
+            {% for s in speakers %}
+              <option value="{{ s['id'] }}">{{ s['name'] }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-auto">
+          <button class="btn btn-outline-primary">+ 追加 &amp; WAV 生成</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ── 一覧 ── #}
+<div class="card shadow-sm">
+  <div class="card-header fw-bold">登録済み（{{ fallbacks | length }} 件）</div>
+  {% if fallbacks %}
+  <ul class="list-group list-group-flush">
+    {% for f in fallbacks %}
+    <li class="list-group-item">
+      <div class="d-flex justify-content-between align-items-start">
+        <div>
+          <div>{{ f['text'] }}</div>
+          <small class="text-muted">
+            {% if f['wav_path'] %}
+              ✅ 生成済（{{ f['generated_at'][:16] | replace('T',' ') }}）
+            {% else %}
+              <span class="text-warning">⚠ 未生成</span>
+            {% endif %}
+            {% if not f['enabled'] %}
+              <span class="badge bg-secondary ms-1">無効</span>
+            {% endif %}
+          </small>
+        </div>
+        <div class="d-flex gap-1 ms-2">
+          <form method="post"
+                action="{{ url_for('admin.fallback_regenerate', fallback_id=f['id']) }}"
+                class="d-flex gap-1 align-items-center">
+            <select name="speaker_id" class="form-select form-select-sm" style="width:auto">
+              {% for s in speakers %}
+                <option value="{{ s['id'] }}">{{ s['name'] }}</option>
+              {% endfor %}
+            </select>
+            <button class="btn btn-sm btn-outline-secondary text-nowrap">再生成</button>
+          </form>
+          <form method="post"
+                action="{{ url_for('admin.fallback_delete', fallback_id=f['id']) }}"
+                onsubmit="return confirm('削除しますか？')">
+            <button class="btn btn-sm btn-outline-danger">削除</button>
+          </form>
+        </div>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="card-body text-muted text-center">
+    フォールバック応答が登録されていません。
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
