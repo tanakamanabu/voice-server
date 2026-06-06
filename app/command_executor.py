@@ -1,19 +1,29 @@
+"""
+コマンド名をもとにDBを参照し、Home Assistant のサービスを呼び出す。
+応答WAVファイルのパスを返す。
+"""
+
+import json
 import logging
 import os
+
 import requests
+
+import database
 
 logger = logging.getLogger(__name__)
 
-HA_URL = os.getenv("HA_URL", "http://localhost:8123")
+HA_URL   = os.getenv("HA_URL",   "http://localhost:8123")
 HA_TOKEN = os.getenv("HA_TOKEN", "")
 
 
-def _ha(domain, service, data):
+def _call_ha(domain: str, service: str, entity_id: str, extra: dict):
     if not HA_TOKEN:
         logger.warning("HA_TOKEN 未設定 — Home Assistant 呼び出しをスキップします")
         return
-    url = f"{HA_URL}/api/services/{domain}/{service}"
+    url     = f"{HA_URL}/api/services/{domain}/{service}"
     headers = {"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"}
+    data    = {"entity_id": entity_id, **extra}
     try:
         resp = requests.post(url, headers=headers, json=data, timeout=5)
         resp.raise_for_status()
@@ -22,30 +32,25 @@ def _ha(domain, service, data):
         logger.error("HA 呼び出し失敗: %s", exc)
 
 
-# 各コマンドの (実行関数, 応答テキスト)
-_LIGHT  = lambda: os.getenv("HA_LIGHT_ENTITY",  "light.living_room")
-_AC     = lambda: os.getenv("HA_AC_ENTITY",     "climate.living_room")
-_PC     = lambda: os.getenv("HA_PC_ENTITY",     "switch.pc")
+def execute(command_name: str) -> str | None:
+    """
+    コマンドを実行し、応答WAVファイルのパスを返す。
+    WAVが未生成またはコマンドが存在しない場合は None を返す。
+    """
+    cmd = database.get_command_by_name(command_name)
+    if cmd is None:
+        logger.warning("DBにコマンドが見つかりません: %s", command_name)
+        return None
 
-COMMANDS: dict[str, tuple] = {
-    "ライトオン":    (lambda: _ha("light",   "turn_on",       {"entity_id": _LIGHT()}),                                  "ライトをオンにします"),
-    "ライトオフ":    (lambda: _ha("light",   "turn_off",      {"entity_id": _LIGHT()}),                                  "ライトをオフにします"),
-    "冷房オン":      (lambda: _ha("climate", "set_hvac_mode", {"entity_id": _AC(), "hvac_mode": "cool"}),                "冷房をオンにします"),
-    "暖房オン":      (lambda: _ha("climate", "set_hvac_mode", {"entity_id": _AC(), "hvac_mode": "heat"}),                "暖房をオンにします"),
-    "エアコンオフ":  (lambda: _ha("climate", "turn_off",      {"entity_id": _AC()}),                                    "エアコンをオフにします"),
-    "学習開始":      (None,                                                                                               "学習を開始します"),
-    "パソコンつけて": (lambda: _ha("switch",  "turn_on",       {"entity_id": _PC()}),                                    "パソコンをつけます"),
-}
+    # Home Assistant 呼び出し
+    if cmd["ha_domain"] and cmd["ha_service"] and cmd["ha_entity_id"]:
+        extra = json.loads(cmd["ha_extra"] or "{}")
+        _call_ha(cmd["ha_domain"], cmd["ha_service"], cmd["ha_entity_id"], extra)
 
+    # ランダムに応答WAVを選択
+    response = database.get_random_response(cmd["id"])
+    if response is None:
+        logger.warning("応答WAVが未生成です（コマンド: %s）。管理画面でWAVを生成してください。", command_name)
+        return None
 
-def execute(command: str) -> str:
-    """コマンドを実行し、音声応答テキストを返す。"""
-    entry = COMMANDS.get(command)
-    if entry is None:
-        logger.warning("未知のコマンド: %s", command)
-        return f"{command}は対応していません"
-
-    action, response = entry
-    if action:
-        action()
-    return response
+    return response["wav_path"]

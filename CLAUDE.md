@@ -23,33 +23,35 @@ docker compose restart voice
 
 ### リクエスト処理フロー
 
-`POST /voice` に 16kHz モノラル WAV を受け取り、WAV を返す。
+`POST /voice` に 16kHz モノラル WAV を受け取り、事前合成済みの WAV を返す。
 
 ```
 受信 WAV
-  └─ vosk_detector.detect_commands()   # VOSK（固定コマンドのみ認識）
-       ├─ コマンドあり → command_executor.execute()  # HA REST API 呼び出し
-       └─ コマンドなし → WhisperModel.transcribe()  # 汎用文字起こし
+  └─ vosk_detector.detect_commands()   # VOSK（DBからgrammarロード）
+       ├─ コマンドあり → command_executor.execute()
+       │                  HA REST API 呼び出し + DB からランダム応答WAV取得
+       └─ コマンドなし → Whisper（ログ用文字起こし）
                               ↓
-                         espeak-ng で TTS → WAV を返す
+                         database.get_random_fallback()
+                              ↓
+                    事前合成済み WAV をそのまま返す
 ```
 
 ### モジュール間の責務分担
 
 | ファイル | 役割 |
 |---|---|
-| `app/main.py` | Flask エントリポイント。フロー制御と TTS のみ担当 |
-| `app/vosk_detector.py` | VOSK モデルのシングルトン管理と文法ベースのコマンド検出 |
-| `app/command_executor.py` | コマンド名 → HA サービス呼び出しのマッピング。応答テキストを返す |
+| `app/main.py` | Flask エントリポイント。起動時に `init_db()` と `reload_grammar()` を呼ぶ |
+| `app/vosk_detector.py` | VOSK モデルのシングルトン管理。grammarはDBから動的ロード。`reload_grammar()` でホットリロード対応 |
+| `app/command_executor.py` | コマンド名でDB参照 → HA REST API 呼び出し → 応答WAVパスを返す |
+| `app/database.py` | SQLite CRUD。`init_db()` でテーブル作成と初期データ投入 |
+| `app/voicevox.py` | VoiceVox API による WAV 事前合成（Step 3 で追加予定） |
+| `app/admin.py` | 管理画面 Blueprint（Step 4 で追加予定） |
 
-### VOSK のコマンド定義
+### コマンドの追加・変更
 
-`vosk_detector.py` の `COMMANDS` 辞書がコマンド検出の唯一の定義元。
-
-- **キー**: コマンド識別名（`command_executor.py` の `COMMANDS` キーと一致させる必要がある）
-- **値**: VOSK 文法トークン（スペース区切りの読み仮名）
-
-新しいコマンドを追加する場合は **両ファイルの `COMMANDS` を必ずセットで更新する**。
+ソースコードの編集は不要。管理画面（`/admin`）から操作する。  
+grammar を変更した後は管理画面の「VOSKに反映」ボタンを押すこと（再起動不要）。
 
 ### Home Assistant 連携の注意点
 
