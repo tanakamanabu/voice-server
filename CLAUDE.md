@@ -62,4 +62,14 @@ docker compose restart voice
 | モデル | 場所 | タイミング |
 |---|---|---|
 | VOSK `vosk-model-ja-0.22` | イメージ内 `/app/vosk-model-ja-0.22/` | Dockerfile ビルド時にダウンロード |
-| Whisper `small` | ホスト `./data/` にマウント | 初回リクエスト時に自動ダウンロード |
+| Whisper `small` | ホスト `./data/cache/` にマウント | 初回リクエスト時に自動ダウンロード |
+
+### データの永続化
+
+```
+data/
+├── cache/       # Whisper モデルキャッシュ（./data/cache:/root/.cache）
+└── app/         # SQLite DB + 事前生成 WAV（./data/app:/app/data）
+    ├── commands.db
+    └── responses/
+```
