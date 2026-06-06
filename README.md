@@ -49,16 +49,29 @@ voice-server/
 
 ### 1. 環境変数の設定
 
-`docker-compose.yml` を編集して以下を設定する。
+`.env.example` をコピーして `.env` を作成し、値を設定する。
+`.env` は `.gitignore` 済みなので **コミットされない**。`docker-compose.yml` は編集不要。
 
-```yaml
-environment:
-  - HA_URL=http://192.168.1.40:8123     # Home Assistant のホスト IP（サービス名不可）
-  - HA_TOKEN=<長期アクセストークン>      # HA → プロフィール → セキュリティ で発行
-  - HA_LIGHT_ENTITY=light.living_room   # HA のエンティティ ID に合わせて変更
-  - HA_AC_ENTITY=climate.living_room
-  - HA_PC_ENTITY=switch.pc
+```bash
+cp .env.example .env
 ```
+
+`.env` を開いて以下を設定する。
+
+```bash
+SECRET_KEY=ランダムな文字列          # 任意のランダム文字列（セッション署名用）
+HA_URL=http://192.168.1.40:8123    # Home Assistant のホスト IP（サービス名不可）
+HA_TOKEN=eyJhbGci...               # HA の長期アクセストークン（下記参照）
+HA_LIGHT_ENTITY=light.living_room  # HA のエンティティ ID に合わせて変更
+HA_AC_ENTITY=climate.living_room
+HA_PC_ENTITY=switch.pc
+```
+
+**HA_TOKEN の取得方法:**
+1. Home Assistant にログイン
+2. 左下のプロフィールアイコン → **「プロフィール」**
+3. 下部の **「セキュリティ」** タブ → **「長期アクセストークン」** → **「トークンを作成」**
+4. 表示されたトークンをコピーして `HA_TOKEN=` に貼り付ける
 
 > `HA_TOKEN` が未設定でも起動は可能。Home Assistant への呼び出しのみスキップされる。
 
