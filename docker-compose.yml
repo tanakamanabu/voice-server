@@ -14,7 +14,6 @@ services:
       - DB_PATH=/app/data/commands.db
       - RESPONSES_DIR=/app/data/responses
       - VOICEVOX_URL=http://voicevox:50021
-      - VOICEVOX_SPEAKER_ID=1
       # Home Assistant (network_mode: host のためホストIPで指定)
       - HA_URL=http://192.168.1.40:8123
       - HA_TOKEN=                        # HA の長期アクセストークンを設定

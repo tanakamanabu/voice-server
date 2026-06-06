@@ -2,12 +2,16 @@
 
 import logging
 import os
+from pathlib import Path
 
 from flask import Blueprint, flash, redirect, render_template, request, url_for
+from werkzeug.utils import secure_filename
 
 import database
 import voicevox
 import vosk_detector
+
+RESPONSES_DIR = Path(os.getenv("RESPONSES_DIR", "/app/data/responses"))
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +31,32 @@ def _delete_wav(wav_path: str | None):
             logger.warning("WAV削除失敗: %s — %s", wav_path, exc)
 
 
+def _save_uploaded_wav(filename_stem: str, file) -> str:
+    """
+    アップロードされた WAV ファイルを保存してパスを返す。
+    filename_stem 例: 'response_3_char_2'
+    """
+    RESPONSES_DIR.mkdir(parents=True, exist_ok=True)
+    path = RESPONSES_DIR / f"{filename_stem}.wav"
+    file.save(str(path))
+    logger.info("WAV アップロード保存: %s", path)
+    return str(path)
+
+
+def _delete_response_all_wavs(response_id: int):
+    """response の全キャラクター WAV ファイルを削除する。"""
+    wavs = database.get_response_wavs(response_id)
+    for wav_row in wavs.values():
+        _delete_wav(wav_row["wav_path"])
+
+
+def _delete_fallback_all_wavs(fallback_id: int):
+    """fallback の全キャラクター WAV ファイルを削除する。"""
+    wavs = database.get_fallback_wavs(fallback_id)
+    for wav_row in wavs.values():
+        _delete_wav(wav_row["wav_path"])
+
+
 # ---------------------------------------------------------------------------
 # コマンド一覧
 # ---------------------------------------------------------------------------
@@ -43,7 +73,6 @@ def index():
 
 @admin.route("/commands/new", methods=["GET", "POST"])
 def command_new():
-    speakers = voicevox.get_speakers()
     if request.method == "POST":
         name         = request.form["name"].strip()
         ha_domain    = request.form.get("ha_domain", "").strip()
@@ -57,7 +86,8 @@ def command_new():
         except Exception as exc:
             flash(f"作成に失敗しました: {exc}", "danger")
     return render_template("admin/command_form.html",
-                           command=None, speakers=speakers, grammars=[], responses=[])
+                           command=None, characters=[], grammars=[],
+                           responses=[], response_wavs={})
 
 
 @admin.route("/commands/<int:command_id>/edit", methods=["GET", "POST"])
@@ -66,10 +96,6 @@ def command_edit(command_id):
     if cmd is None:
         flash("コマンドが見つかりません", "danger")
         return redirect(url_for("admin.index"))
-
-    grammars  = database.get_grammars_for_command(command_id)
-    responses = database.get_responses_for_command(command_id)
-    speakers  = voicevox.get_speakers()
 
     if request.method == "POST":
         name         = request.form["name"].strip()
@@ -86,15 +112,21 @@ def command_edit(command_id):
             flash(f"保存に失敗しました: {exc}", "danger")
         return redirect(url_for("admin.command_edit", command_id=command_id))
 
+    grammars   = database.get_grammars_for_command(command_id)
+    responses  = database.get_responses_for_command(command_id)
+    characters = database.get_all_characters()
+    response_wavs = {r["id"]: database.get_response_wavs(r["id"]) for r in responses}
+
     return render_template("admin/command_form.html",
-                           command=cmd, speakers=speakers,
-                           grammars=grammars, responses=responses)
+                           command=cmd, characters=characters,
+                           grammars=grammars, responses=responses,
+                           response_wavs=response_wavs)
 
 
 @admin.route("/commands/<int:command_id>/delete", methods=["POST"])
 def command_delete(command_id):
     for r in database.get_responses_for_command(command_id):
-        _delete_wav(r["wav_path"])
+        _delete_response_all_wavs(r["id"])
     database.delete_command(command_id)
     flash("コマンドを削除しました", "success")
     return redirect(url_for("admin.index"))
@@ -127,41 +159,85 @@ def grammar_delete(grammar_id):
 
 @admin.route("/commands/<int:command_id>/responses", methods=["POST"])
 def response_add(command_id):
-    text       = request.form["text"].strip()
-    speaker_id = request.form.get("speaker_id", type=int)
+    text = request.form["text"].strip()
     if not text:
         flash("テキストを入力してください", "warning")
         return redirect(url_for("admin.command_edit", command_id=command_id))
 
     response_id = database.add_response(command_id, text)
-    try:
-        voicevox.generate_response_wav(response_id, speaker_id)
-        flash("応答テキストを追加し WAV を生成しました", "success")
-    except Exception as exc:
-        flash(f"WAV 生成に失敗しました（テキストは保存済み）: {exc}", "warning")
+
+    # voicevox タイプのキャラクター分を一括生成（upload タイプはスキップ）
+    results    = voicevox.generate_all_response_wavs(response_id)
+    ok         = sum(1 for _, p in results if p)
+    ng         = sum(1 for _, p in results if not p)
+    upload_cnt = sum(1 for c in database.get_all_characters() if c["synthesis_type"] == "upload")
+
+    msg = f"応答テキストを追加しました"
+    if results:
+        msg += f"（VoiceVox: {ok} 件生成"
+        if ng:
+            msg += f"、{ng} 件失敗"
+        msg += "）"
+    if upload_cnt:
+        msg += f"。アップロード型キャラクター {upload_cnt} 件は手動で WAV を登録してください。"
+    flash(msg, "success" if ng == 0 else "warning")
     return redirect(url_for("admin.command_edit", command_id=command_id))
 
 
 @admin.route("/responses/<int:response_id>/regenerate", methods=["POST"])
 def response_regenerate(response_id):
-    command_id = request.form.get("command_id", type=int)
-    speaker_id = request.form.get("speaker_id", type=int)
+    command_id   = request.form.get("command_id", type=int)
+    character_id = request.form.get("character_id", type=int)
     try:
-        voicevox.generate_response_wav(response_id, speaker_id)
+        voicevox.generate_response_wav(response_id, character_id)
         flash("WAV を再生成しました", "success")
     except Exception as exc:
         flash(f"WAV 再生成に失敗しました: {exc}", "danger")
     return redirect(url_for("admin.command_edit", command_id=command_id))
 
 
+@admin.route("/responses/<int:response_id>/regenerate_all", methods=["POST"])
+def response_regenerate_all(response_id):
+    command_id = request.form.get("command_id", type=int)
+    results = voicevox.generate_all_response_wavs(response_id)
+    ok = sum(1 for _, p in results if p)
+    ng = sum(1 for _, p in results if not p)
+    if ng == 0:
+        flash(f"全 {ok} キャラクター分の WAV を再生成しました", "success")
+    else:
+        flash(f"WAV 再生成: {ok} 件成功、{ng} 件失敗", "warning")
+    return redirect(url_for("admin.command_edit", command_id=command_id))
+
+
 @admin.route("/responses/<int:response_id>/delete", methods=["POST"])
 def response_delete(response_id):
     command_id = request.form.get("command_id", type=int)
-    row = database.get_response(response_id)
-    if row:
-        _delete_wav(row["wav_path"])
+    _delete_response_all_wavs(response_id)
     database.delete_response(response_id)
     flash("応答を削除しました", "success")
+    return redirect(url_for("admin.command_edit", command_id=command_id))
+
+
+@admin.route("/responses/<int:response_id>/upload", methods=["POST"])
+def response_upload_wav(response_id):
+    """アップロードされた WAV ファイルを応答に登録する。"""
+    command_id   = request.form.get("command_id", type=int)
+    character_id = request.form.get("character_id", type=int)
+    file = request.files.get("wav_file")
+
+    if not file or file.filename == "":
+        flash("WAV ファイルを選択してください", "warning")
+        return redirect(url_for("admin.command_edit", command_id=command_id))
+    if not file.filename.lower().endswith(".wav"):
+        flash("WAV ファイル（.wav）のみアップロードできます", "warning")
+        return redirect(url_for("admin.command_edit", command_id=command_id))
+
+    try:
+        wav_path = _save_uploaded_wav(f"response_{response_id}_char_{character_id}", file)
+        database.upsert_response_wav(response_id, character_id, wav_path)
+        flash("WAV をアップロードしました", "success")
+    except Exception as exc:
+        flash(f"アップロードに失敗しました: {exc}", "danger")
     return redirect(url_for("admin.command_edit", command_id=command_id))
 
 
@@ -172,43 +248,152 @@ def response_delete(response_id):
 @admin.route("/fallback", methods=["GET", "POST"])
 def fallback_index():
     if request.method == "POST":
-        text       = request.form["text"].strip()
-        speaker_id = request.form.get("speaker_id", type=int)
+        text = request.form["text"].strip()
         if not text:
             flash("テキストを入力してください", "warning")
             return redirect(url_for("admin.fallback_index"))
         fallback_id = database.add_fallback(text)
-        try:
-            voicevox.generate_fallback_wav(fallback_id, speaker_id)
-            flash("フォールバック応答を追加し WAV を生成しました", "success")
-        except Exception as exc:
-            flash(f"WAV 生成に失敗しました（テキストは保存済み）: {exc}", "warning")
+        results = voicevox.generate_all_fallback_wavs(fallback_id)
+        ok = sum(1 for _, p in results if p)
+        ng = sum(1 for _, p in results if not p)
+        if ng == 0:
+            flash(f"フォールバック応答を追加し、全 {ok} キャラクター分の WAV を生成しました", "success")
+        else:
+            flash(
+                f"フォールバック応答を追加しました（WAV: {ok} 件成功、{ng} 件失敗）",
+                "warning",
+            )
         return redirect(url_for("admin.fallback_index"))
 
-    fallbacks = database.get_all_fallbacks()
-    speakers  = voicevox.get_speakers()
-    return render_template("admin/fallback.html", fallbacks=fallbacks, speakers=speakers)
+    fallbacks     = database.get_all_fallbacks()
+    characters    = database.get_all_characters()
+    fallback_wavs = {f["id"]: database.get_fallback_wavs(f["id"]) for f in fallbacks}
+    return render_template("admin/fallback.html",
+                           fallbacks=fallbacks,
+                           characters=characters,
+                           fallback_wavs=fallback_wavs)
 
 
 @admin.route("/fallback/<int:fallback_id>/regenerate", methods=["POST"])
 def fallback_regenerate(fallback_id):
-    speaker_id = request.form.get("speaker_id", type=int)
+    character_id = request.form.get("character_id", type=int)
     try:
-        voicevox.generate_fallback_wav(fallback_id, speaker_id)
+        voicevox.generate_fallback_wav(fallback_id, character_id)
         flash("WAV を再生成しました", "success")
     except Exception as exc:
         flash(f"WAV 再生成に失敗しました: {exc}", "danger")
     return redirect(url_for("admin.fallback_index"))
 
 
+@admin.route("/fallback/<int:fallback_id>/regenerate_all", methods=["POST"])
+def fallback_regenerate_all(fallback_id):
+    results = voicevox.generate_all_fallback_wavs(fallback_id)
+    ok = sum(1 for _, p in results if p)
+    ng = sum(1 for _, p in results if not p)
+    if ng == 0:
+        flash(f"全 {ok} キャラクター分の WAV を再生成しました", "success")
+    else:
+        flash(f"WAV 再生成: {ok} 件成功、{ng} 件失敗", "warning")
+    return redirect(url_for("admin.fallback_index"))
+
+
 @admin.route("/fallback/<int:fallback_id>/delete", methods=["POST"])
 def fallback_delete(fallback_id):
-    row = database.get_fallback(fallback_id)
-    if row:
-        _delete_wav(row["wav_path"])
+    _delete_fallback_all_wavs(fallback_id)
     database.delete_fallback(fallback_id)
     flash("フォールバック応答を削除しました", "success")
     return redirect(url_for("admin.fallback_index"))
+
+
+@admin.route("/fallback/<int:fallback_id>/upload", methods=["POST"])
+def fallback_upload_wav(fallback_id):
+    """アップロードされた WAV ファイルをフォールバックに登録する。"""
+    character_id = request.form.get("character_id", type=int)
+    file = request.files.get("wav_file")
+
+    if not file or file.filename == "":
+        flash("WAV ファイルを選択してください", "warning")
+        return redirect(url_for("admin.fallback_index"))
+    if not file.filename.lower().endswith(".wav"):
+        flash("WAV ファイル（.wav）のみアップロードできます", "warning")
+        return redirect(url_for("admin.fallback_index"))
+
+    try:
+        wav_path = _save_uploaded_wav(f"fallback_{fallback_id}_char_{character_id}", file)
+        database.upsert_fallback_wav(fallback_id, character_id, wav_path)
+        flash("WAV をアップロードしました", "success")
+    except Exception as exc:
+        flash(f"アップロードに失敗しました: {exc}", "danger")
+    return redirect(url_for("admin.fallback_index"))
+
+
+# ---------------------------------------------------------------------------
+# キャラクター管理
+# ---------------------------------------------------------------------------
+
+@admin.route("/characters")
+def characters_index():
+    characters = database.get_all_characters()
+    speakers   = voicevox.get_speakers()
+    return render_template("admin/characters.html",
+                           characters=characters, speakers=speakers)
+
+
+@admin.route("/characters/new", methods=["POST"])
+def character_new():
+    name           = request.form["name"].strip()
+    synthesis_type = request.form.get("synthesis_type", "voicevox")
+    speaker_id     = request.form.get("speaker_id", type=int) or 0
+
+    if not name:
+        flash("名前は必須です", "warning")
+        return redirect(url_for("admin.characters_index"))
+    if synthesis_type == "voicevox" and not speaker_id:
+        flash("VoiceVox タイプはスピーカーを選択してください", "warning")
+        return redirect(url_for("admin.characters_index"))
+    try:
+        database.create_character(name, synthesis_type, speaker_id)
+        flash(f"キャラクター「{name}」を作成しました", "success")
+    except Exception as exc:
+        flash(f"作成に失敗しました: {exc}", "danger")
+    return redirect(url_for("admin.characters_index"))
+
+
+@admin.route("/characters/<int:character_id>/edit", methods=["POST"])
+def character_edit(character_id):
+    name           = request.form["name"].strip()
+    synthesis_type = request.form.get("synthesis_type", "voicevox")
+    speaker_id     = request.form.get("speaker_id", type=int) or 0
+    try:
+        database.update_character(character_id, name, synthesis_type, speaker_id)
+        flash("キャラクターを更新しました", "success")
+    except Exception as exc:
+        flash(f"更新に失敗しました: {exc}", "danger")
+    return redirect(url_for("admin.characters_index"))
+
+
+@admin.route("/characters/<int:character_id>/activate", methods=["POST"])
+def character_activate(character_id):
+    database.set_active_character(character_id)
+    char = database.get_character(character_id)
+    flash(f"「{char['name']}」をアクティブキャラクターに設定しました", "success")
+    return redirect(url_for("admin.characters_index"))
+
+
+@admin.route("/characters/<int:character_id>/delete", methods=["POST"])
+def character_delete(character_id):
+    char = database.get_character(character_id)
+    if char is None:
+        flash("キャラクターが見つかりません", "danger")
+        return redirect(url_for("admin.characters_index"))
+    if char["is_active"]:
+        flash("アクティブキャラクターは削除できません。先に別のキャラクターをアクティブに設定してください。", "warning")
+        return redirect(url_for("admin.characters_index"))
+    # WAV ファイルは DB の CASCADE で紐付きレコードが削除されるが、ファイル自体は手動削除
+    # （削除対象が広範なためここでは省略 — data/ 以下のファイルは定期クリーンアップ推奨）
+    database.delete_character(character_id)
+    flash(f"キャラクター「{char['name']}」を削除しました", "success")
+    return redirect(url_for("admin.characters_index"))
 
 
 # ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@
   <style>
     body { background: #f8f9fa; }
     .navbar-brand { font-weight: bold; }
-    .badge-ungenerated { font-size: .75em; }
+    .wav-matrix td { vertical-align: middle; white-space: nowrap; }
   </style>
 </head>
 <body>
@@ -17,10 +17,12 @@
   <div class="container">
     <a class="navbar-brand" href="{{ url_for('admin.index') }}">🎙 voice-server 管理</a>
     <div class="navbar-nav me-auto">
-      <a class="nav-link {% if request.endpoint == 'admin.index' or request.endpoint == 'admin.command_new' or request.endpoint == 'admin.command_edit' %}active{% endif %}"
+      <a class="nav-link {% if request.endpoint in ('admin.index','admin.command_new','admin.command_edit') %}active{% endif %}"
          href="{{ url_for('admin.index') }}">コマンド</a>
       <a class="nav-link {% if request.endpoint == 'admin.fallback_index' %}active{% endif %}"
          href="{{ url_for('admin.fallback_index') }}">フォールバック応答</a>
+      <a class="nav-link {% if request.endpoint == 'admin.characters_index' %}active{% endif %}"
+         href="{{ url_for('admin.characters_index') }}">キャラクター</a>
     </div>
     <form method="post" action="{{ url_for('admin.reload') }}" class="d-flex">
       <button class="btn btn-outline-warning btn-sm" type="submit"

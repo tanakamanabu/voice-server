@@ -32,7 +32,7 @@ def _call_ha(domain: str, service: str, entity_id: str, extra: dict):
         logger.error("HA 呼び出し失敗: %s", exc)
 
 
-def execute(command_name: str) -> str | None:
+def execute(command_name: str, character_id: int) -> str | None:
     """
     コマンドを実行し、応答WAVファイルのパスを返す。
     WAVが未生成またはコマンドが存在しない場合は None を返す。
@@ -47,10 +47,11 @@ def execute(command_name: str) -> str | None:
         extra = json.loads(cmd["ha_extra"] or "{}")
         _call_ha(cmd["ha_domain"], cmd["ha_service"], cmd["ha_entity_id"], extra)
 
-    # ランダムに応答WAVを選択
-    response = database.get_random_response(cmd["id"])
-    if response is None:
-        logger.warning("応答WAVが未生成です（コマンド: %s）。管理画面でWAVを生成してください。", command_name)
-        return None
-
-    return response["wav_path"]
+    # アクティブキャラクターの WAV をランダム選択
+    wav_path = database.get_random_response(cmd["id"], character_id)
+    if wav_path is None:
+        logger.warning(
+            "応答WAVが未生成です（コマンド: %s, character_id: %d）。管理画面でWAVを生成してください。",
+            command_name, character_id,
+        )
+    return wav_path
