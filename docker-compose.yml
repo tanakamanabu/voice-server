@@ -9,18 +9,19 @@ services:
       - ./data/app:/app/data         # SQLite DB + 事前生成 WAV
     environment:
       - PYTHONUNBUFFERED=1
-      - SECRET_KEY=change-me-in-production
       - VOSK_MODEL_PATH=/app/vosk-model-ja-0.22
       - DB_PATH=/app/data/commands.db
       - RESPONSES_DIR=/app/data/responses
       - VOICEVOX_URL=http://voicevox:50021
+      # 以下は .env ファイルで上書きする（.env.example を参照）
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
       # Home Assistant (network_mode: host のためホストIPで指定)
-      - HA_URL=http://192.168.1.40:8123
-      - HA_TOKEN=                        # HA の長期アクセストークンを設定
+      - HA_URL=${HA_URL:-http://192.168.1.40:8123}
+      - HA_TOKEN=${HA_TOKEN:-}
       # エンティティID (HA の実際の値に合わせて変更)
-      - HA_LIGHT_ENTITY=light.living_room
-      - HA_AC_ENTITY=climate.living_room
-      - HA_PC_ENTITY=switch.pc
+      - HA_LIGHT_ENTITY=${HA_LIGHT_ENTITY:-light.living_room}
+      - HA_AC_ENTITY=${HA_AC_ENTITY:-climate.living_room}
+      - HA_PC_ENTITY=${HA_PC_ENTITY:-switch.pc}
     depends_on:
       - voicevox
     restart: unless-stopped
