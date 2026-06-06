@@ -9,6 +9,7 @@ services:
       - ./data/app:/app/data         # SQLite DB + 事前生成 WAV
     environment:
       - PYTHONUNBUFFERED=1
+      - SECRET_KEY=change-me-in-production
       - VOSK_MODEL_PATH=/app/vosk-model-ja-0.22
       - DB_PATH=/app/data/commands.db
       - RESPONSES_DIR=/app/data/responses

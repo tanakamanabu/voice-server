@@ -7,12 +7,15 @@ from flask import Flask, jsonify, request, send_file
 
 import database
 import vosk_detector
+from admin import admin as admin_blueprint
 from command_executor import execute
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+app.secret_key = os.getenv("SECRET_KEY", "change-me-in-production")
+app.register_blueprint(admin_blueprint)
 
 # 起動時初期化
 database.init_db()
